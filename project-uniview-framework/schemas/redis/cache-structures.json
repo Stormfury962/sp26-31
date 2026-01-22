@@ -1,0 +1,266 @@
+{
+  "cacheStructures": [
+    {
+      "name": "Lot Summary Cache",
+      "keyPattern": "lot:{lotId}:summary",
+      "ttl": 60,
+      "ttlUnit": "seconds",
+      "dataType": "JSON string",
+      "purpose": "Fast access to current lot occupancy without DynamoDB queries",
+      "example": {
+        "key": "lot:LOT_A:summary",
+        "value": {
+          "lotId": "LOT_A",
+          "totalSpaces": 150,
+          "availableSpaces": 47,
+          "occupancyRate": 68.67,
+          "lastUpdated": "2026-01-06T14:32:15Z"
+        }
+      },
+      "operations": {
+        "set": "redis.setex('lot:LOT_A:summary', 60, JSON.stringify(data))",
+        "get": "const data = JSON.parse(await redis.get('lot:LOT_A:summary'))",
+        "delete": "redis.del('lot:LOT_A:summary')"
+      },
+      "invalidation": "Invalidate when any sensor in the lot reports status change"
+    },
+    {
+      "name": "Prediction Cache",
+      "keyPattern": "predictions:{lotId}",
+      "ttl": 300,
+      "ttlUnit": "seconds",
+      "dataType": "JSON string",
+      "purpose": "Cache prediction calculations to reduce computation overhead",
+      "example": {
+        "key": "predictions:LOT_A",
+        "value": {
+          "lotId": "LOT_A",
+          "predictions": [
+            {
+              "timestamp": "2026-01-06T15:00:00Z",
+              "occupancy": 72.5,
+              "confidence": 0.89
+            },
+            {
+              "timestamp": "2026-01-06T16:00:00Z",
+              "occupancy": 81.3,
+              "confidence": 0.85
+            }
+          ],
+          "generatedAt": "2026-01-06T14:32:15Z"
+        }
+      },
+      "operations": {
+        "set": "redis.setex('predictions:LOT_A', 300, JSON.stringify(predictions))",
+        "get": "const predictions = JSON.parse(await redis.get('predictions:LOT_A'))",
+        "delete": "redis.del('predictions:LOT_A')"
+      },
+      "invalidation": "Regenerate predictions every 5 minutes or when historical patterns change significantly"
+    },
+    {
+      "name": "User Session Cache",
+      "keyPattern": "session:{userId}",
+      "ttl": 3600,
+      "ttlUnit": "seconds",
+      "dataType": "JSON string",
+      "purpose": "Fast session validation without database lookups",
+      "example": {
+        "key": "session:550e8400-e29b-41d4-a716-446655440000",
+        "value": {
+          "userId": "550e8400-e29b-41d4-a716-446655440000",
+          "email": "student@rutgers.edu",
+          "role": "USER",
+          "lastActivity": "2026-01-06T14:32:15Z"
+        }
+      },
+      "operations": {
+        "set": "redis.setex('session:' + userId, 3600, JSON.stringify(session))",
+        "get": "const session = JSON.parse(await redis.get('session:' + userId))",
+        "delete": "redis.del('session:' + userId)",
+        "refresh": "redis.expire('session:' + userId, 3600)"
+      },
+      "invalidation": "Delete on logout, refresh TTL on each API request"
+    },
+    {
+      "name": "Active WebSocket Connections",
+      "keyPattern": "ws:connections:{lotId}",
+      "ttl": 300,
+      "ttlUnit": "seconds",
+      "dataType": "JSON string",
+      "purpose": "Track active real-time subscribers for efficient message routing",
+      "example": {
+        "key": "ws:connections:LOT_A",
+        "value": {
+          "lotId": "LOT_A",
+          "connections": [
+            {
+              "connectionId": "abc123",
+              "userId": "550e8400-e29b-41d4-a716-446655440000",
+              "connectedAt": "2026-01-06T14:30:00Z"
+            },
+            {
+              "connectionId": "def456",
+              "userId": "660e8400-e29b-41d4-a716-446655440001",
+              "connectedAt": "2026-01-06T14:31:00Z"
+            }
+          ]
+        }
+      },
+      "operations": {
+        "addConnection": "const connections = JSON.parse(await redis.get(key)); connections.push(newConn); redis.setex(key, 300, JSON.stringify(connections))",
+        "removeConnection": "const connections = JSON.parse(await redis.get(key)); connections = connections.filter(c => c.connectionId !== id); redis.setex(key, 300, JSON.stringify(connections))",
+        "getConnections": "const data = JSON.parse(await redis.get('ws:connections:' + lotId))"
+      },
+      "invalidation": "Refresh TTL on activity, remove connection on disconnect"
+    },
+    {
+      "name": "Rate Limit Counter",
+      "keyPattern": "ratelimit:{userId}:{endpoint}",
+      "ttl": 60,
+      "ttlUnit": "seconds",
+      "dataType": "Integer",
+      "purpose": "Track API request counts for rate limiting",
+      "example": {
+        "key": "ratelimit:550e8400-e29b-41d4-a716-446655440000:/lots",
+        "value": 42
+      },
+      "operations": {
+        "increment": "const count = await redis.incr('ratelimit:' + userId + ':' + endpoint); if (count === 1) redis.expire(key, 60)",
+        "check": "const count = await redis.get('ratelimit:' + userId + ':' + endpoint); return count < 100"
+      },
+      "invalidation": "Automatically expires after 60 seconds",
+      "limits": {
+        "user": "100 requests per minute per endpoint",
+        "admin": "1000 requests per minute per endpoint"
+      }
+    },
+    {
+      "name": "Sensor Health Status",
+      "keyPattern": "sensor:health:{nodeId}",
+      "ttl": 900,
+      "ttlUnit": "seconds",
+      "dataType": "JSON string",
+      "purpose": "Quick access to sensor health metrics without querying DynamoDB",
+      "example": {
+        "key": "sensor:health:NODE_001",
+        "value": {
+          "nodeId": "NODE_001",
+          "status": "ONLINE",
+          "batteryLevel": 87,
+          "signalStrength": -65,
+          "lastHeartbeat": "2026-01-06T14:32:15Z",
+          "alerts": []
+        }
+      },
+      "operations": {
+        "set": "redis.setex('sensor:health:NODE_001', 900, JSON.stringify(health))",
+        "get": "const health = JSON.parse(await redis.get('sensor:health:NODE_001'))"
+      },
+      "invalidation": "Update on every heartbeat or status change"
+    },
+    {
+      "name": "All Lots List Cache",
+      "keyPattern": "lots:all",
+      "ttl": 60,
+      "ttlUnit": "seconds",
+      "dataType": "JSON string (array)",
+      "purpose": "Cache the full list of parking lots to reduce DynamoDB scans",
+      "example": {
+        "key": "lots:all",
+        "value": [
+          {
+            "lotId": "LOT_A",
+            "name": "Busch Student Center",
+            "totalSpaces": 150,
+            "availableSpaces": 47
+          },
+          {
+            "lotId": "LOT_B",
+            "name": "College Avenue Garage",
+            "totalSpaces": 200,
+            "availableSpaces": 89
+          }
+        ]
+      },
+      "operations": {
+        "set": "redis.setex('lots:all', 60, JSON.stringify(lots))",
+        "get": "const lots = JSON.parse(await redis.get('lots:all'))"
+      },
+      "invalidation": "Invalidate when any lot's occupancy changes significantly (>5%)"
+    },
+    {
+      "name": "User Preferences Cache",
+      "keyPattern": "user:prefs:{userId}",
+      "ttl": 3600,
+      "ttlUnit": "seconds",
+      "dataType": "JSON string",
+      "purpose": "Cache user preferences to reduce database reads",
+      "example": {
+        "key": "user:prefs:550e8400-e29b-41d4-a716-446655440000",
+        "value": {
+          "favoriteSpots": ["LOT_A", "LOT_C"],
+          "notifications": true,
+          "theme": "dark"
+        }
+      },
+      "operations": {
+        "set": "redis.setex('user:prefs:' + userId, 3600, JSON.stringify(prefs))",
+        "get": "const prefs = JSON.parse(await redis.get('user:prefs:' + userId))",
+        "delete": "redis.del('user:prefs:' + userId)"
+      },
+      "invalidation": "Delete when user updates preferences"
+    }
+  ],
+  "configuration": {
+    "host": "uniview-cache.abc123.0001.use1.cache.amazonaws.com",
+    "port": 6379,
+    "maxRetries": 3,
+    "connectTimeout": 5000,
+    "commandTimeout": 3000,
+    "enableOfflineQueue": true,
+    "retryStrategy": "exponential backoff with jitter"
+  },
+  "connectionExample": {
+    "nodejs": "const redis = require('redis'); const client = redis.createClient({ host: 'uniview-cache.abc123.0001.use1.cache.amazonaws.com', port: 6379 }); await client.connect();",
+    "python": "import redis; r = redis.Redis(host='uniview-cache.abc123.0001.use1.cache.amazonaws.com', port=6379, decode_responses=True)"
+  },
+  "bestPractices": [
+    "Always set TTL on cache entries to prevent stale data",
+    "Use JSON.stringify/parse for complex objects",
+    "Implement cache warming for frequently accessed data",
+    "Monitor cache hit/miss ratios with CloudWatch",
+    "Use pipelining for bulk operations",
+    "Implement circuit breakers for Redis failures",
+    "Always have fallback to database if cache miss",
+    "Use shorter TTLs for rapidly changing data",
+    "Invalidate cache proactively when data changes",
+    "Monitor memory usage and eviction policies"
+  ],
+  "monitoring": {
+    "cloudWatchMetrics": [
+      "CacheHits",
+      "CacheMisses",
+      "CacheHitRate",
+      "CPUUtilization",
+      "NetworkBytesIn",
+      "NetworkBytesOut",
+      "Evictions",
+      "ReplicationLag"
+    ],
+    "customMetrics": [
+      "Average cache lookup time",
+      "Cache invalidation frequency",
+      "Most frequently accessed keys"
+    ]
+  },
+  "scaling": {
+    "current": "cache.t3.micro (0.5 GB memory) - Good for development",
+    "production": "cache.t3.small (1.55 GB memory) - Recommended for 150 sensors + 1000 users",
+    "highLoad": "cache.m5.large (6.38 GB memory) - For >500 sensors or >5000 concurrent users"
+  },
+  "estimatedCosts": {
+    "development": "$12/month (t3.micro)",
+    "production": "$24/month (t3.small)",
+    "highLoad": "$100/month (m5.large)"
+  }
+}
