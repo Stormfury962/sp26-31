@@ -9,7 +9,9 @@
     "start": "node dist/index.js",
     "db:create-tables": "ts-node scripts/createTables.ts",
     "db:seed": "ts-node scripts/seedData.ts",
-    "db:setup": "npm run db:create-tables && npm run db:seed"
+    "db:setup": "npm run db:create-tables && npm run db:seed",
+    "dynamodb:start": "node scripts/start-dynamodb.js",
+    "local:setup": "ts-node scripts/setup-local-db.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.500.0",
@@ -29,6 +31,7 @@
     "@types/jsonwebtoken": "^9.0.5",
     "@types/node": "^20.10.6",
     "@types/uuid": "^9.0.7",
+    "dynamodb-local": "^0.0.36",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.3.3"

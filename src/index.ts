@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 import { config } from './config';
 
 // Import routes
@@ -8,6 +10,13 @@ import authRoutes from './routes/auth';
 import lotsRoutes from './routes/lots';
 
 const app = express();
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST'],
+  },
+});
 
 // Middleware
 app.use(cors({
@@ -63,14 +72,38 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
   });
 });
 
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+  console.log('[Socket.IO] Client connected:', socket.id);
+
+  socket.on('subscribe', (data: { lotId: string }) => {
+    console.log('[Socket.IO] Client subscribed to lot:', data.lotId);
+    socket.join(`lot:${data.lotId}`);
+  });
+
+  socket.on('unsubscribe', (data: { lotId: string }) => {
+    console.log('[Socket.IO] Client unsubscribed from lot:', data.lotId);
+    socket.leave(`lot:${data.lotId}`);
+  });
+
+  socket.on('ping', () => {
+    socket.emit('pong');
+  });
+
+  socket.on('disconnect', (reason) => {
+    console.log('[Socket.IO] Client disconnected:', socket.id, reason);
+  });
+});
+
 // Start server
-app.listen(config.port, () => {
+httpServer.listen(config.port, () => {
   console.log(`
 ╔════════════════════════════════════════════════════════════╗
 ║              Project Uniview Backend API                  ║
 ╠════════════════════════════════════════════════════════════╣
 ║  Server running on: http://localhost:${config.port}                ║
 ║  Environment: ${config.nodeEnv.padEnd(43)}║
+║  WebSocket: Enabled                                        ║
 ║                                                            ║
 ║  Endpoints:                                                ║
 ║    GET  /health              - Health check                ║
@@ -84,4 +117,5 @@ app.listen(config.port, () => {
   `);
 });
 
+export { io };
 export default app;
