@@ -3,7 +3,7 @@
  * Manages state for all parking lots
  */
 
-import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
+import { createSlice, createAsyncThunk, PayloadAction, createSelector } from '@reduxjs/toolkit';
 import { ParkingLot, LotsState } from '../../types';
 import { apiService } from '../../services/apiService';
 
@@ -125,17 +125,24 @@ const lotsSlice = createSlice({
 export const { updateLot, updateLotOccupancy, clearError } = lotsSlice.actions;
 
 // Selectors
-export const selectAllLots = (state: { lots: LotsState }) =>
-  state.lots.allIds.map((id) => state.lots.byId[id]);
+const selectLotsById = (state: { lots: LotsState }) => state.lots.byId;
+const selectAllIds = (state: { lots: LotsState }) => state.lots.allIds;
+
+export const selectAllLots = createSelector(
+  [selectAllIds, selectLotsById],
+  (allIds, byId) => allIds.map((id) => byId[id])
+);
 
 export const selectLotById = (state: { lots: LotsState }, lotId: string) =>
   state.lots.byId[lotId];
 
-export const selectAvailableLots = (state: { lots: LotsState }) =>
-  state.lots.allIds
-    .map((id) => state.lots.byId[id])
-    .filter((lot) => lot.availableSpaces > 0)
-    .sort((a, b) => b.availableSpaces - a.availableSpaces);
+export const selectAvailableLots = createSelector(
+  [selectAllLots],
+  (lots) =>
+    lots
+      .filter((lot) => lot.availableSpaces > 0)
+      .sort((a, b) => b.availableSpaces - a.availableSpaces)
+);
 
 export const selectLotsLoading = (state: { lots: LotsState }) => state.lots.loading;
 
