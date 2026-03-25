@@ -67,7 +67,7 @@ const ListScreen: React.FC = () => {
       case 'distance':
         return sorted.sort((a, b) => calculateDistance(a) - calculateDistance(b));
       case 'availability':
-        return sorted.sort((a, b) => b.availableSpaces - a.availableSpaces);
+        return sorted.sort((a, b) => (Number(b.availableSpaces) || 0) - (Number(a.availableSpaces) || 0));
       case 'name':
         return sorted.sort((a, b) => a.name.localeCompare(b.name));
       default:
@@ -80,8 +80,7 @@ const ListScreen: React.FC = () => {
       lot={item} 
       distance={userLocation ? calculateDistance(item) : null}
       onPress={() => {
-        // Navigate to map view with this lot selected
-        navigation.navigate('Map' as never);
+        navigation.navigate('Map', { lotId: item.lotId } as never);
       }}
     />
   );

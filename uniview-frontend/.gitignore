@@ -1,0 +1,13 @@
+# Local secrets - never commit
+android/local.properties
+
+# Build output
+android/app/build/
+android/build/
+android/.gradle/
+
+# Dependencies
+node_modules/
+
+# Metro
+.metro-health-check*

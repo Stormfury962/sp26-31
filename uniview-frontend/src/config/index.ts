@@ -5,10 +5,10 @@
 
 const ENV = {
   development: {
-    API_BASE_URL: 'https://api-dev.uniview.edu',
-    WS_URL: 'wss://ws-dev.uniview.edu',
+    API_BASE_URL: 'http://10.0.2.2:3000', // Android emulator localhost
+    WS_URL: 'ws://10.0.2.2:3000',
     AWS_REGION: 'us-east-1',
-    MQTT_ENDPOINT: 'wss://iot-dev.uniview.edu/mqtt',
+    MQTT_ENDPOINT: 'ws://10.0.2.2:3000/mqtt',
     ENABLE_LOGGING: true,
     CACHE_DURATION: 60000, // 1 minute
   },

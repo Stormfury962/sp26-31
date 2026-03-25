@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE, Region } from 'react-native-maps';
 import { useDispatch, useSelector } from 'react-redux';
+import { useRoute, useFocusEffect } from '@react-navigation/native';
 import Geolocation from '@react-native-community/geolocation';
 import { fetchLots, selectAllLots, selectLotsLoading } from '../redux/slices/lotsSlice';
 import { selectLot, setMapRegion, selectMapRegion } from '../redux/slices/uiSlice';
@@ -31,11 +32,31 @@ const MapScreen: React.FC = () => {
   const lots = useSelector(selectAllLots);
   const loading = useSelector(selectLotsLoading);
   const mapRegion = useSelector(selectMapRegion);
-  
+  const route = useRoute<any>();
+
   const mapRef = useRef<MapView>(null);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
   const [visibleLots, setVisibleLots] = useState<string[]>([]);
+
+  // Zoom to lot when navigated from ListScreen
+  useFocusEffect(
+    useCallback(() => {
+      const lotId = route.params?.lotId;
+      if (!lotId || lots.length === 0) return;
+
+      const lot = lots.find(l => l.lotId === lotId);
+      if (!lot) return;
+
+      mapRef.current?.animateToRegion({
+        ...lot.location,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      }, Config.MAP_ANIMATION_DURATION);
+
+      dispatch(selectLot(lot.lotId));
+    }, [route.params?.lotId, lots, dispatch])
+  );
 
   // Fetch parking lots on mount
   useEffect(() => {
