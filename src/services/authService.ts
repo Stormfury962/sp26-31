@@ -152,14 +152,14 @@ export class AuthService {
   private generateTokens(userId: string, email: string, role: string): AuthTokens {
     const accessToken = jwt.sign(
       { userId, email, role },
-      config.jwt.secret,
-      { expiresIn: config.jwt.expiresIn }
+      config.jwt.secret as string,
+      { expiresIn: config.jwt.expiresIn as any }
     );
 
     const refreshToken = jwt.sign(
       { userId, type: 'refresh' },
-      config.jwt.secret,
-      { expiresIn: config.jwt.refreshExpiresIn }
+      config.jwt.secret as string,
+      { expiresIn: config.jwt.refreshExpiresIn as any }
     );
 
     return {

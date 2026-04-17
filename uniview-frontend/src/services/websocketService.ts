@@ -8,6 +8,7 @@ import { Config } from '../config';
 import { WebSocketMessage, ParkingLot, ParkingSpace } from '../types';
 import { store } from '../redux/store';
 import { updateLot, updateLotOccupancy } from '../redux/slices/lotsSlice';
+import { spaceUpdated } from '../redux/slices/spacesSlice';
 
 class WebSocketService {
   private socket: Socket | null = null;
@@ -18,6 +19,13 @@ class WebSocketService {
   private subscribedLots: Set<string> = new Set();
 
   connect(): Promise<void> {
+    const timeout = new Promise<void>((_, reject) =>
+      setTimeout(() => reject(new Error('WebSocket connection timeout')), 8000)
+    );
+    return Promise.race([this._connect(), timeout]);
+  }
+
+  private _connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       if (this.socket?.connected) {
         resolve();
@@ -139,21 +147,21 @@ class WebSocketService {
     if (message.type === 'space_update') {
       const space = message.payload as ParkingSpace;
       console.log('[WebSocket] Space update received:', space.nodeId);
-      
-      // Update lot occupancy based on space change
+
+      // Update the individual space in Redux
+      store.dispatch(spaceUpdated(space));
+
+      // Update lot-level occupancy counts
       const state = store.getState();
       const lot = state.lots.byId[space.lotId];
-      
-      if (lot) {
-        const availableSpaces = space.status === 'available' 
-          ? lot.availableSpaces + 1 
-          : lot.availableSpaces - 1;
-        const occupiedSpaces = lot.totalSpaces - availableSpaces;
-        
+      const prevSpace = state.spaces.byNodeId[space.nodeId];
+
+      if (lot && prevSpace && prevSpace.status !== space.status) {
+        const delta = space.status === 'available' ? 1 : -1;
         store.dispatch(updateLotOccupancy({
           lotId: space.lotId,
-          availableSpaces,
-          occupiedSpaces,
+          availableSpaces: Math.max(0, lot.availableSpaces + delta),
+          occupiedSpaces: Math.max(0, lot.occupiedSpaces - delta),
         }));
       }
     }

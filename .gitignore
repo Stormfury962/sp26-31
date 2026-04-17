@@ -27,3 +27,4 @@ nul
 
 # DynamoDB Local data
 .dynamodb/
+data/dynamodb/

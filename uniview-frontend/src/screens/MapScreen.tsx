@@ -3,7 +3,7 @@
  * Interactive map showing parking lot availability in real-time
  */
 
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -17,7 +17,8 @@ import { useDispatch, useSelector } from 'react-redux';
 import { useRoute, useFocusEffect } from '@react-navigation/native';
 import Geolocation from '@react-native-community/geolocation';
 import { fetchLots, selectAllLots, selectLotsLoading } from '../redux/slices/lotsSlice';
-import { selectLot, setMapRegion, selectMapRegion } from '../redux/slices/uiSlice';
+import { fetchSpaces, makeSelectSpacesByLotId } from '../redux/slices/spacesSlice';
+import { selectLot, setMapRegion, selectMapRegion, selectSelectedLotId } from '../redux/slices/uiSlice';
 import { websocketService } from '../services/websocketService';
 import { Config } from '../config';
 import { ParkingLot } from '../types';
@@ -26,6 +27,7 @@ import LotMarker from '../components/LotMarker';
 import LotDetailSheet from '../components/LotDetailSheet';
 import FilterButton from '../components/FilterButton';
 import LocationButton from '../components/LocationButton';
+import SpaceMarker from '../components/SpaceMarker';
 
 const MapScreen: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
@@ -34,10 +36,19 @@ const MapScreen: React.FC = () => {
   const mapRegion = useSelector(selectMapRegion);
   const route = useRoute<any>();
 
+  const selectedLotId = useSelector(selectSelectedLotId);
+  const selectSpaces = useMemo(
+    () => selectedLotId ? makeSelectSpacesByLotId(selectedLotId) : () => [],
+    [selectedLotId]
+  );
+  const selectedLotSpaces = useSelector(selectSpaces);
+
   const mapRef = useRef<MapView>(null);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
   const [visibleLots, setVisibleLots] = useState<string[]>([]);
+  const [showSpaces, setShowSpaces] = useState(false);
+  const [mapType, setMapType] = useState<'standard' | 'hybrid'>('standard');
 
   // Zoom to lot when navigated from ListScreen
   useFocusEffect(
@@ -81,6 +92,18 @@ const MapScreen: React.FC = () => {
       websocketService.subscribeToVisible(visibleLots);
     }
   }, [visibleLots]);
+
+  // Fetch spaces and switch to satellite when a lot is selected
+  useEffect(() => {
+    if (selectedLotId) {
+      dispatch(fetchSpaces(selectedLotId));
+      setShowSpaces(true);
+      setMapType('hybrid');
+    } else {
+      setShowSpaces(false);
+      setMapType('standard');
+    }
+  }, [selectedLotId, dispatch]);
 
   const getCurrentLocation = useCallback(() => {
     setLocationLoading(true);
@@ -129,8 +152,8 @@ const MapScreen: React.FC = () => {
     // Center map on selected lot
     mapRef.current?.animateToRegion({
       ...lot.location,
-      latitudeDelta: 0.005,
-      longitudeDelta: 0.005,
+      latitudeDelta: 0.0015,
+      longitudeDelta: 0.0015,
     }, Config.MAP_ANIMATION_DURATION);
   }, [dispatch]);
 
@@ -163,6 +186,7 @@ const MapScreen: React.FC = () => {
         ref={mapRef}
         provider={PROVIDER_GOOGLE}
         style={styles.map}
+        mapType={mapType}
         initialRegion={mapRegion || Config.DEFAULT_REGION}
         onRegionChangeComplete={handleRegionChange}
         showsUserLocation={true}
@@ -178,6 +202,11 @@ const MapScreen: React.FC = () => {
             color={getLotColor(lot)}
             onPress={() => handleMarkerPress(lot)}
           />
+        ))}
+
+        {/* Individual Space Markers (shown when a lot is selected) */}
+        {showSpaces && selectedLotSpaces.map(space => (
+          <SpaceMarker key={space.nodeId} space={space} />
         ))}
 
         {/* User Location Marker (optional custom marker) */}

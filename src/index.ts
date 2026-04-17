@@ -8,6 +8,7 @@ import { config } from './config';
 import healthRoutes from './routes/health';
 import authRoutes from './routes/auth';
 import lotsRoutes from './routes/lots';
+import { createSensorsRouter } from './routes/sensors';
 
 const app = express();
 const httpServer = createServer(app);
@@ -37,11 +38,13 @@ if (config.nodeEnv === 'development') {
 app.use('/health', healthRoutes);
 app.use('/auth', authRoutes);
 app.use('/lots', lotsRoutes);
+app.use('/sensors', createSensorsRouter(io));
 
 // Also mount under /api/v1 for API versioning
 app.use('/api/v1/health', healthRoutes);
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/lots', lotsRoutes);
+app.use('/api/v1/sensors', createSensorsRouter(io));
 
 // 404 handler
 app.use((req, res) => {

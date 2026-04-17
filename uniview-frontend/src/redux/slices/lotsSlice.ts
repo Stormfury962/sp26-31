@@ -15,16 +15,23 @@ const initialState: LotsState = {
   lastFetch: null,
 };
 
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 // Async Thunks
 export const fetchLots = createAsyncThunk(
   'lots/fetchLots',
   async (_, { rejectWithValue }) => {
-    try {
-      const response = await apiService.getLots();
-      return response.data;
-    } catch (error: any) {
-      return rejectWithValue(error.message);
+    let lastError: any;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const response = await apiService.getLots();
+        return response.data;
+      } catch (error: any) {
+        lastError = error;
+        if (attempt < 2) await sleep(600 * (attempt + 1));
+      }
     }
+    return rejectWithValue(lastError.message);
   }
 );
 

@@ -1,4 +1,4 @@
-import { ScanCommand, GetCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { ScanCommand, GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { dynamoDB } from '../db/dynamodb';
 import { config } from '../config';
 import { ParkingLot, ParkingSpace } from '../types';
@@ -6,45 +6,58 @@ import { ParkingLot, ParkingSpace } from '../types';
 // Mock data for development when DynamoDB is not available
 const MOCK_LOTS: ParkingLot[] = [
   {
-    lotId: 'lot-1',
-    name: 'Lot A - Student Center',
-    location: { latitude: 40.5008, longitude: -74.4474 },
+    lotId: 'LOT_BUSCH_SC',
+    name: 'Busch Student Center',
+    location: { latitude: 40.5231, longitude: -74.4587 },
     totalSpaces: 150,
-    availableSpaces: 42,
-    occupiedSpaces: 103,
+    availableSpaces: 47,
+    occupiedSpaces: 98,
     offlineSpaces: 5,
-    occupancyRate: 68.7,
-    type: 'student',
-    amenities: ['covered', 'ev-charging', 'handicap'],
-    hours: '24/7',
+    occupancyRate: 65.3,
     lastUpdate: new Date().toISOString(),
   },
   {
-    lotId: 'lot-2',
-    name: 'Lot B - Engineering Building',
-    location: { latitude: 40.5020, longitude: -74.4490 },
-    totalSpaces: 200,
-    availableSpaces: 15,
-    occupiedSpaces: 180,
-    offlineSpaces: 5,
-    occupancyRate: 90.0,
-    type: 'faculty',
-    amenities: ['covered'],
-    hours: '6AM - 10PM',
-    lastUpdate: new Date().toISOString(),
-  },
-  {
-    lotId: 'lot-3',
-    name: 'Lot C - Library',
-    location: { latitude: 40.4995, longitude: -74.4460 },
-    totalSpaces: 100,
-    availableSpaces: 67,
-    occupiedSpaces: 30,
+    lotId: 'LOT_LIVINGSTON',
+    name: 'Livingston Plaza',
+    location: { latitude: 40.5239, longitude: -74.4363 },
+    totalSpaces: 120,
+    availableSpaces: 65,
+    occupiedSpaces: 52,
     offlineSpaces: 3,
-    occupancyRate: 30.0,
-    type: 'visitor',
-    amenities: ['ev-charging'],
-    hours: '24/7',
+    occupancyRate: 43.3,
+    lastUpdate: new Date().toISOString(),
+  },
+  {
+    lotId: 'LOT_WERBLIN',
+    name: 'Werblin Recreation Center',
+    location: { latitude: 40.5200, longitude: -74.4604 },
+    totalSpaces: 90,
+    availableSpaces: 33,
+    occupiedSpaces: 54,
+    offlineSpaces: 3,
+    occupancyRate: 60.0,
+    lastUpdate: new Date().toISOString(),
+  },
+  {
+    lotId: 'LOT_COLLEGE_AVE',
+    name: 'College Avenue Garage',
+    location: { latitude: 40.4997, longitude: -74.4480 },
+    totalSpaces: 200,
+    availableSpaces: 89,
+    occupiedSpaces: 106,
+    offlineSpaces: 5,
+    occupancyRate: 53.0,
+    lastUpdate: new Date().toISOString(),
+  },
+  {
+    lotId: 'LOT_COOK_DOUGLASS',
+    name: 'Cook/Douglass Lot',
+    location: { latitude: 40.4835, longitude: -74.4383 },
+    totalSpaces: 180,
+    availableSpaces: 112,
+    occupiedSpaces: 64,
+    offlineSpaces: 4,
+    occupancyRate: 35.6,
     lastUpdate: new Date().toISOString(),
   },
 ];
@@ -105,12 +118,23 @@ export class LotService {
    * Get a specific lot by ID
    */
   async getLotById(lotId: string): Promise<ParkingLot | null> {
-    const command = new GetCommand({
-      TableName: config.tables.parkingLot,
-      Key: { lotId },
-    });
+    if (this.useMockData) {
+      return MOCK_LOTS.find(l => l.lotId === lotId) ?? null;
+    }
 
-    const result = await dynamoDB.send(command);
+    let result;
+    try {
+      const command = new GetCommand({
+        TableName: config.tables.parkingLot,
+        Key: { lotId },
+      });
+      result = await dynamoDB.send(command);
+    } catch (error) {
+      console.log('[LotService] getLotById failed, switching to mock data');
+      this.useMockData = true;
+      return MOCK_LOTS.find(l => l.lotId === lotId) ?? null;
+    }
+
     if (!result.Item) return null;
 
     const lot = result.Item as ParkingLot;
@@ -139,6 +163,9 @@ export class LotService {
    * Get all spaces for a specific lot
    */
   async getSpacesByLotId(lotId: string): Promise<ParkingSpace[]> {
+    if (this.useMockData) return [];
+
+    try {
     const command = new QueryCommand({
       TableName: config.tables.parkingSpace,
       IndexName: 'lotId-lastUpdated-index',
@@ -150,6 +177,10 @@ export class LotService {
 
     const result = await dynamoDB.send(command);
     return (result.Items || []) as ParkingSpace[];
+    } catch (error) {
+      console.log('[LotService] getSpacesByLotId failed, returning empty:', error);
+      return [];
+    }
   }
 
   /**
@@ -233,6 +264,31 @@ export class LotService {
       return 'Limited spaces available now. Consider alternative lots if possible.';
     }
     return 'Good availability expected. No concerns at this time.';
+  }
+
+  async updateSpaceStatus(
+    nodeId: string,
+    lotId: string,
+    status: 'available' | 'occupied',
+    confidence?: number
+  ): Promise<void> {
+    const updateExpr = confidence !== undefined
+      ? 'SET #status = :status, lastUpdated = :ts, confidence = :conf'
+      : 'SET #status = :status, lastUpdated = :ts';
+
+    const exprValues: Record<string, any> = {
+      ':status': status,
+      ':ts': new Date().toISOString(),
+    };
+    if (confidence !== undefined) exprValues[':conf'] = confidence;
+
+    await dynamoDB.send(new UpdateCommand({
+      TableName: config.tables.parkingSpace,
+      Key: { nodeId, lotId },
+      UpdateExpression: updateExpr,
+      ExpressionAttributeNames: { '#status': 'status' },
+      ExpressionAttributeValues: exprValues,
+    }));
   }
 }
 
