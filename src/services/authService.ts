@@ -170,6 +170,57 @@ export class AuthService {
   }
 
   /**
+   * Sign in or register via Google — finds user by email, creates if new
+   */
+  async googleSignIn(
+    email: string,
+    name: string,
+    googleId: string,
+    photoUrl?: string
+  ): Promise<{ user: User; tokens: AuthTokens }> {
+    let user = await this.getUserByEmail(email);
+
+    if (!user) {
+      const userId = uuidv4();
+      const now = new Date().toISOString();
+      user = {
+        userId,
+        email,
+        name,
+        googleId,
+        photoUrl,
+        role: 'user',
+        settings: DEFAULT_USER_SETTINGS,
+        favoriteSpots: [],
+        createdAt: now,
+      } as User;
+
+      await dynamoDB.send(new PutCommand({
+        TableName: config.tables.user,
+        Item: user,
+        ConditionExpression: 'attribute_not_exists(userId)',
+      }));
+    } else if (user.googleId !== googleId || user.photoUrl !== photoUrl) {
+      const { UpdateCommand } = await import('@aws-sdk/lib-dynamodb');
+      await dynamoDB.send(new UpdateCommand({
+        TableName: config.tables.user,
+        Key: { userId: user.userId },
+        UpdateExpression: 'SET googleId = :googleId, photoUrl = :photoUrl, lastLogin = :lastLogin',
+        ExpressionAttributeValues: {
+          ':googleId': googleId,
+          ':photoUrl': photoUrl ?? null,
+          ':lastLogin': new Date().toISOString(),
+        },
+      }));
+      user = { ...user, googleId, photoUrl };
+    }
+
+    const tokens = this.generateTokens(user.userId, user.email, user.role);
+    const { passwordHash: _, ...userWithoutPassword } = user as any;
+    return { user: userWithoutPassword as User, tokens };
+  }
+
+  /**
    * Verify JWT token
    */
   verifyToken(token: string): { userId: string; email: string; role: string } | null {

@@ -109,7 +109,54 @@ class APIService {
     }
   }
 
+  setToken(token: string) {
+    this.authToken = token;
+  }
+
   // Authentication
+  async googleAuth(params: {
+    idToken: string;
+    email: string;
+    name: string;
+    googleId: string;
+    photoUrl?: string;
+  }): Promise<ApiResponse<{
+    userId: string;
+    email: string;
+    name: string;
+    photoUrl?: string;
+    accessToken: string;
+    refreshToken: string;
+    expiresIn: number;
+    role: string;
+  }>> {
+    const response = await this.request<{
+      userId: string;
+      email: string;
+      name: string;
+      photoUrl?: string;
+      accessToken: string;
+      refreshToken: string;
+      expiresIn: number;
+      role: string;
+    }>({
+      method: 'POST',
+      url: '/auth/google',
+      data: {
+        email: params.email,
+        name: params.name,
+        googleId: params.googleId,
+        photoUrl: params.photoUrl,
+      },
+    });
+
+    if (response.success && response.data) {
+      this.authToken = response.data.accessToken;
+    }
+
+    return response;
+  }
+
   async login(email: string, password: string): Promise<ApiResponse<{ user: User; token: string }>> {
     const response = await this.request<{ user: User; token: string }>({
       method: 'POST',

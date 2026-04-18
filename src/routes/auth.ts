@@ -234,6 +234,48 @@ router.post('/refresh', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /auth/google
+ * Sign in or register via Google
+ */
+router.post('/google', async (req: Request, res: Response) => {
+  try {
+    const { email, name, googleId, photoUrl } = req.body;
+
+    if (!email || !googleId) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'email and googleId are required' },
+        meta: { timestamp: new Date().toISOString() },
+      });
+    }
+
+    const result = await authService.googleSignIn(email, name || email.split('@')[0], googleId, photoUrl);
+
+    res.json({
+      success: true,
+      data: {
+        userId: result.user.userId,
+        email: result.user.email,
+        name: result.user.name,
+        photoUrl: result.user.photoUrl,
+        accessToken: result.tokens.accessToken,
+        refreshToken: result.tokens.refreshToken,
+        expiresIn: result.tokens.expiresIn,
+        role: result.user.role,
+      },
+      meta: { timestamp: new Date().toISOString() },
+    });
+  } catch (error: any) {
+    console.error('Google auth error:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Google authentication failed' },
+      meta: { timestamp: new Date().toISOString() },
+    });
+  }
+});
+
+/**
  * POST /auth/logout
  * Logout user (client-side token removal, could add token blacklist)
  */

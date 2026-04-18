@@ -62,6 +62,8 @@ export interface User {
   email: string;
   name: string;
   role: 'user' | 'admin';
+  googleId?: string;
+  photoUrl?: string;
   favoriteLocationName?: string;
   settings: UserSettings;
   createdAt: string;

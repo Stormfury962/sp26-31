@@ -90,6 +90,8 @@ export interface User {
   passwordHash?: string;
   name: string;
   role: 'user' | 'admin';
+  googleId?: string;
+  photoUrl?: string;
   profile?: {
     firstName?: string;
     lastName?: string;

@@ -35,7 +35,7 @@ npm install --legacy-peer-deps
 # Terminal 1:
 npm run dynamodb:start
 # Terminal 2:
-npm run local:setup
+npm run db:setup
 ```
 
 ### Additional Setup

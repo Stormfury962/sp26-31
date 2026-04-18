@@ -92,6 +92,9 @@ android {
         versionCode 1
         versionName "1.0"
         manifestPlaceholders = [mapsApiKey: localProperties.getProperty('MAPS_API_KEY', '')]
+        ndk {
+            abiFilters "x86_64"
+        }
     }
     signingConfigs {
         debug {

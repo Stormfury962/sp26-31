@@ -44,10 +44,10 @@ export const Config = {
   
   // Map Configuration
   DEFAULT_REGION: {
-    latitude: 40.5008,  // Rutgers University coordinates
-    longitude: -74.4474,
-    latitudeDelta: 0.01,
-    longitudeDelta: 0.01,
+    latitude: 40.5261,  // Jersey Mike's Arena, Livingston Campus
+    longitude: -74.4411,
+    latitudeDelta: 0.018,
+    longitudeDelta: 0.018,
   },
   MAP_ANIMATION_DURATION: 300,
   GEOLOCATION_OPTIONS: {
@@ -103,6 +103,10 @@ export const Config = {
     LAST_LOCATION: '@uniview:lastLocation',
   },
   
+  // Google Sign-In — get this from Firebase Console > Project Settings > Web API Key
+  // Also add your SHA-1 fingerprint and download google-services.json
+  GOOGLE_WEB_CLIENT_ID: 'YOUR_WEB_CLIENT_ID_HERE',
+
   // Feature Flags
   FEATURES: {
     PREDICTIONS: true,
