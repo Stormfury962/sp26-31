@@ -27,7 +27,14 @@ Hardware connections:
   the correct default (immediate latch on CS rising edge).
 
 Dependencies:
-    pip install spidev RPi.GPIO requests
+    pip install spidev lgpio requests
+
+    lgpio replaces RPi.GPIO for Pi 5 compatibility. RPi.GPIO raises
+    "cannot determine SoC peripheral base address" on Pi 5 because it
+    does not support the RP1 I/O chip. lgpio works on Pi 4 and Pi 5.
+
+    Alternatively, wire MCP4822 LDAC directly to GND — it is held LOW
+    permanently anyway — and remove the lgpio dependency entirely.
 
 Usage:
     python car_detection.py            # continuous mode (recommended)
@@ -39,7 +46,7 @@ import logging
 import argparse
 import sys
 import spidev
-import RPi.GPIO as GPIO
+import lgpio
 import requests
 
 # ── Logging ────────────────────────────────────────────────────────────────────
@@ -166,17 +173,38 @@ class MCP4822:
 # GPIO helpers
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Module-level lgpio handle — opened once, shared by setup/cleanup
+_gpio_handle: int = -1
+
+
 def setup_gpio() -> None:
-    """Hold LDAC LOW so the MCP4822 latches immediately on every CS rising edge."""
-    GPIO.setmode(GPIO.BCM)
-    GPIO.setwarnings(False)
-    GPIO.setup(LDAC_PIN, GPIO.OUT)
-    GPIO.output(LDAC_PIN, GPIO.LOW)
-    log.info("GPIO ready — LDAC (GPIO%d) held LOW.", LDAC_PIN)
+    """
+    Hold LDAC LOW so the MCP4822 latches immediately on every CS rising edge.
+
+    Uses lgpio instead of RPi.GPIO. RPi.GPIO raises:
+        "RuntimeError: cannot determine SoC peripheral base address"
+    on Raspberry Pi 5 because RPi.GPIO does not support the RP1 I/O chip.
+    lgpio uses the kernel gpiochip interface and works on Pi 4 and Pi 5.
+
+    lgpio equivalents of the RPi.GPIO calls replaced:
+        GPIO.setmode(GPIO.BCM)          -> lgpio.gpiochip_open(0)
+        GPIO.setup(pin, GPIO.OUT)       -> lgpio.gpio_claim_output(h, pin)
+        GPIO.output(pin, GPIO.LOW)      -> lgpio.gpio_write(h, pin, 0)
+    """
+    global _gpio_handle
+    _gpio_handle = lgpio.gpiochip_open(0)           # open /dev/gpiochip0
+    lgpio.gpio_claim_output(_gpio_handle, LDAC_PIN)  # configure as output
+    lgpio.gpio_write(_gpio_handle, LDAC_PIN, 0)      # hold LOW
+    log.info("GPIO ready — LDAC (GPIO%d) held LOW via lgpio.", LDAC_PIN)
 
 
 def cleanup_gpio() -> None:
-    GPIO.cleanup()
+    """Release the lgpio handle. Equivalent to GPIO.cleanup()."""
+    global _gpio_handle
+    if _gpio_handle >= 0:
+        lgpio.gpio_free(_gpio_handle, LDAC_PIN)
+        lgpio.gpiochip_close(_gpio_handle)
+        _gpio_handle = -1
     log.info("GPIO cleaned up.")
 
 
