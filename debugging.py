@@ -2,10 +2,9 @@
 car_detection.py — Project Uniview Sensor Node
 ================================================
 Detects vehicle presence using an analog Hall Effect sensor read via an
-MCP3002 ADC (SPI), drives an MCP4822 DAC output to reflect occupancy state,
-and POSTs status to the Uniview backend.
+MCP3002 ADC over SPI, and POSTs occupancy status to the Uniview backend.
 
-POST behaviour (combines both prior versions):
+POST behaviour:
   - Immediate POST whenever occupancy status changes (car arrives / departs).
   - Guaranteed heartbeat POST every SLEEP_SECONDS (default 1 hr) so the
     backend always receives a reading even if nothing has changed.
@@ -15,15 +14,11 @@ Hardware connections:
   MCP3002 CS  → GPIO7  / SPI0 CE1  (pin 26)
   MCP3002 CLK → GPIO11 / SPI0 SCLK (pin 23)
   MCP3002 Din → GPIO10 / SPI0 MOSI (pin 19)
-  MCP3002 Dout→ GPIO9  / SPI0 MISO (pin 21)
+  MCP3002 Dout→ GPIO9  / SPI0 MISO (pin 21)  ← sensor data arrives here
 
-  MCP4822 CS   → GPIO8  / SPI0 CE0  (pin 24)   [Arduino: dacCS  = 8 ]
-  MCP4822 SCK  → GPIO11 / SPI0 SCLK (pin 23)   [Arduino: dacSCK = 11]
-  MCP4822 SDI  → GPIO10 / SPI0 MOSI (pin 19)   [Arduino: dacSDI = 10]
-  MCP4822 LDAC → GND                            [Arduino: dacLDAC = 7]
-
-  LDAC is wired directly to GND. This is equivalent to holding it LOW
-  permanently in software and removes the need for any GPIO library.
+  The Pi reads the sensor result on GPIO9 / MISO. The raw analog signal
+  from the Hall Effect sensor goes into MCP3002 pin 2 (CH0) only — it
+  never connects to a Pi GPIO pin directly.
 
 Dependencies:
     pip install spidev requests
@@ -33,6 +28,7 @@ Usage:
     python car_detection.py --once     # single read + POST, then exit (cron)
 """
 
+import os
 import time
 import logging
 import argparse
@@ -60,22 +56,16 @@ POLL_SECONDS    = 0.1           # How often to sample the ADC (100 ms)
 
 # ── ADC — MCP3002 (SPI bus 0, CE1 / GPIO7) ───────────────────────────────────
 ADC_BUS         = 0
-ADC_DEVICE      = 1             # CE1 = GPIO7
+ADC_DEVICE      = 1             # CE1 = GPIO7  →  /dev/spidev0.1
 ADC_CHANNEL     = 0             # CH0 connected to Hall Effect sensor
-ADC_SPEED_HZ    = 1_200_000     # Safe for 3.3 V supply (max 1.2 MHz @ 2.7 V)
-
-# ── DAC — MCP4822 / MCP48X2 (SPI bus 0, CE0 / GPIO8) ─────────────────────────
-DAC_BUS         = 0
-DAC_DEVICE      = 0             # CE0 = GPIO8
-DAC_SPEED_HZ    = 20_000_000    # MCP4822 max clock
-DAC_CHANNEL     = 0             # 0 = output channel A, 1 = output channel B
-DAC_GAIN_1X     = True          # True = 1x gain (Vout = Vref * D/4096)
+ADC_SPEED_HZ    = 1_200_000     # Max 1.2 MHz @ 2.7 V supply, 3.2 MHz @ 5 V
 
 # ── Detection ─────────────────────────────────────────────────────────────────
-# Midpoint of the 10-bit ADC range (0-1023).
-# Raise this value if the sensor reads high in an empty space (ambient field);
-# lower it if a parked car produces only a modest magnetic deflection.
+# Midpoint of the 10-bit ADC range (0–1023).
+# Raise if the sensor reads high in an empty space (strong ambient field).
+# Lower if a parked car produces only a small magnetic deflection.
 THRESHOLD       = 512
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SPI preflight check
@@ -83,21 +73,17 @@ THRESHOLD       = 512
 
 def _check_spi_device(bus: int, device: int) -> None:
     """
-    Verify that /dev/spidev{bus}.{device} exists before attempting to open it.
+    Verify /dev/spidev{bus}.{device} exists before attempting to open it.
 
-    spidev.open() raises a plain FileNotFoundError (errno 2) with no context
-    when the device file is missing, which happens when:
-      - SPI is disabled in /boot/firmware/config.txt (Pi 5 / Bookworm)
-        or /boot/config.txt (Pi 4 / Bullseye and earlier)
-      - Only CE0 is active but CE1 is needed (or vice-versa)
+    spidev.open() raises a bare FileNotFoundError (errno 2) when the device
+    file is missing — this happens when SPI is disabled in the Pi boot config.
 
     Fix:
-      1. Add/uncomment  dtparam=spi=on  in the config file above.
-      2. sudo reboot
-      3. Confirm with:  ls /dev/spidev*
-         Expected:  /dev/spidev0.0   /dev/spidev0.1
+      1. Open  /boot/firmware/config.txt  (Pi 5) or  /boot/config.txt  (Pi 4)
+      2. Add or uncomment:  dtparam=spi=on
+      3. sudo reboot
+      4. Verify:  ls /dev/spidev*   →  should show /dev/spidev0.0  /dev/spidev0.1
     """
-    import os
     path = f"/dev/spidev{bus}.{device}"
     if not os.path.exists(path):
         available = [f for f in os.listdir("/dev") if f.startswith("spidev")]
@@ -105,7 +91,7 @@ def _check_spi_device(bus: int, device: int) -> None:
             f"\n\nSPI device '{path}' not found.\n"
             f"Available SPI devices: {available or ['none']}\n\n"
             f"To fix:\n"
-            f"  1. Open  /boot/firmware/config.txt  (Pi 5) or  /boot/config.txt  (Pi 4)\n"
+            f"  1. Open  /boot/firmware/config.txt  (Pi 5)  or  /boot/config.txt  (Pi 4)\n"
             f"  2. Add or uncomment:  dtparam=spi=on\n"
             f"  3. sudo reboot\n"
             f"  4. Verify: ls /dev/spidev*\n"
@@ -113,23 +99,24 @@ def _check_spi_device(bus: int, device: int) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MCP3002 — SPI ADC (replaces GPIO.input() from the original script)
+# MCP3002 — SPI ADC
 # ══════════════════════════════════════════════════════════════════════════════
 
 class MCP3002:
     """
     10-bit, 2-channel SPI ADC.
 
-    2-byte SPI transaction (unlike the 3-byte MCP3008 protocol):
+    2-byte SPI transaction:
+        TX byte 0: [0][START=1][SGL=1][CH][MSBF=1][0][0][0]
+                    CH=0  →  0x68  (0b01101000)
+                    CH=1  →  0x78  (0b01111000)
+        TX byte 1: 0x00  (don't care — clocks out the result)
 
-        TX byte 0: [0][START][SGL][CH][MSBF][0][0][0]
-                    CH=0 -> 0x68 (0b01101000)
-                    CH=1 -> 0x78 (0b01111000)
-        TX byte 1: 0x00  (don't care, clocks out the result)
+        Result = ((rx[0] & 0x03) << 8) | rx[1]   →  0 to 1023
 
-        Result = ((rx[0] & 0x03) << 8) | rx[1]   ->  0 to 1023
+    Data comes back to the Pi on GPIO9 / SPI0 MISO (physical pin 21).
     """
-    _CMD_BASE = 0x68    # START=1, SGL=1, CH0, MSBF=1
+    _CMD_BASE = 0x68    # START=1, SGL=1, CH0 selected, MSBF=1
 
     def __init__(self, bus: int, device: int, speed_hz: int) -> None:
         _check_spi_device(bus, device)
@@ -139,7 +126,7 @@ class MCP3002:
         self._spi.mode = 0b00           # CPOL=0, CPHA=0
 
     def read(self, channel: int) -> int:
-        """Return a 10-bit reading (0-1023) for channel 0 or 1."""
+        """Return a 10-bit reading (0–1023) for channel 0 or 1."""
         if channel not in (0, 1):
             raise ValueError(f"MCP3002 only has channels 0 and 1, got {channel}")
         cmd = [self._CMD_BASE | (channel << 4), 0x00]
@@ -151,81 +138,34 @@ class MCP3002:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MCP4822 — SPI DAC (absent from the original script)
+# Sensor read
 # ══════════════════════════════════════════════════════════════════════════════
 
-class MCP4822:
+def read_sensor(adc: MCP3002) -> str:
     """
-    12-bit, dual-channel SPI DAC.
+    Read the Hall Effect sensor via the MCP3002 and return an occupancy string.
 
-    2-byte SPI transaction:
-        Byte 0: [~A/B][BUF][~GA][~SHDN][D11][D10][D9][D8]
-        Byte 1: [D7][D6][D5][D4][D3][D2][D1][D0]
-
-    Outputs 0 V (no car) or Vref (car detected) to mirror the Arduino's
-    DAC logic: outputValue = (sensorValue > threshold) ? 4095 : 0
-    """
-    MAX = 4095
-
-    def __init__(self, bus: int, device: int, speed_hz: int,
-                 channel: int = 0, gain_1x: bool = True) -> None:
-        _check_spi_device(bus, device)
-        self._spi = spidev.SpiDev()
-        self._spi.open(bus, device)
-        self._spi.max_speed_hz = speed_hz
-        self._spi.mode = 0b00
-
-        # Pre-compute the config nibble (upper 4 bits of first byte)
-        ab   = channel << 7                         # bit 7: channel select
-        buf  = 0 << 6                               # bit 6: unbuffered Vref
-        ga   = (1 if gain_1x else 0) << 5           # bit 5: gain
-        shdn = 1 << 4                               # bit 4: output active
-        self._cfg = ab | buf | ga | shdn
-
-    def write(self, value: int) -> None:
-        """Send a 12-bit value (0-4095) to the DAC output pin."""
-        value     = max(0, min(value, self.MAX))
-        high_byte = self._cfg | ((value >> 8) & 0x0F)
-        low_byte  = value & 0xFF
-        self._spi.xfer2([high_byte, low_byte])
-
-    def close(self) -> None:
-        self._spi.close()
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Sensor read  (replaces GPIO.input(HALL_SENSOR_PIN) from the original script)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def read_sensor(adc: MCP3002, dac: MCP4822) -> str:
-    """
-    Read the Hall Effect sensor via the MCP3002 ADC, apply the detection
-    threshold, drive the MCP4822 DAC output, and return a status string.
-
-    Replaces the original:
+    Replaces the original digital read:
         value = GPIO.input(HALL_SENSOR_PIN)
         return "occupied" if value == GPIO.HIGH else "available"
 
     With the analog equivalent:
-        raw      = adc.read(ADC_CHANNEL)           # 0-1023
-        occupied = raw > THRESHOLD                 # same logic as Arduino sketch
-        dac.write(4095 if occupied else 0)
+        raw      = adc.read(ADC_CHANNEL)    # 0–1023
+        occupied = raw > THRESHOLD
     """
     raw      = adc.read(ADC_CHANNEL)
     occupied = raw > THRESHOLD
     status   = "occupied" if occupied else "available"
 
-    dac.write(MCP4822.MAX if occupied else 0)   # 4095 = car present, 0 = empty
-
     log.info(
-        "Hall sensor: %4d / 1023  threshold: %d  ->  %s  (DAC: %d)",
-        raw, THRESHOLD, status.upper(), MCP4822.MAX if occupied else 0,
+        "Hall sensor: %4d / 1023  threshold: %d  ->  %s",
+        raw, THRESHOLD, status.upper(),
     )
     return status
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# HTTP POST  (kept from the original script, signature unchanged)
+# HTTP POST
 # ══════════════════════════════════════════════════════════════════════════════
 
 def send_status_update(status: str) -> None:
@@ -268,51 +208,40 @@ def main() -> None:
     log.info("=== Project Uniview — Node: %s  Lot: %s ===", NODE_ID, LOT_ID)
 
     adc: MCP3002 | None = None
-    dac: MCP4822 | None = None
 
     try:
         adc = MCP3002(ADC_BUS, ADC_DEVICE, ADC_SPEED_HZ)
-        dac = MCP4822(DAC_BUS, DAC_DEVICE, DAC_SPEED_HZ, DAC_CHANNEL, DAC_GAIN_1X)
 
         if args.once:
-            # ── Single-shot (cron) mode ────────────────────────────────────────
-            # Mirrors the original script's structure and the Arduino's setup():
-            #   read -> send -> exit   (OS scheduler handles the 1-hour interval)
-            #
-            # To schedule hourly via cron:
+            # ── Single-shot / cron mode ────────────────────────────────────────
+            # Take one reading, POST it, and exit.
+            # Schedule with cron for the 1-hour interval:
             #   crontab -e
             #   0 * * * * python3 /path/to/car_detection.py --once
-            status = read_sensor(adc, dac)
+            status = read_sensor(adc)
             send_status_update(status)
             log.info("Single reading complete. Exiting.")
 
         else:
             # ── Continuous mode ───────────────────────────────────────────────
-            # Polls the ADC every POLL_SECONDS (100 ms) for a responsive DAC
-            # output, but only POSTs to the backend in two cases:
-            #
+            # Polls the ADC every POLL_SECONDS (100 ms) and POSTs in two cases:
             #   1. Status change  — immediate POST when a car arrives/departs.
             #   2. Heartbeat      — POST every SLEEP_SECONDS (1 hr) regardless,
-            #                       so the backend and Redis cache always have a
-            #                       fresh reading. Matches the original script's
-            #                       guaranteed hourly reporting behaviour.
+            #                       so the backend always has a recent reading.
             log.info(
                 "Continuous mode — polling every %.0f ms, heartbeat every %d s.",
                 POLL_SECONDS * 1000, SLEEP_SECONDS,
             )
             last_status:    str | None = None
-            last_post_time: float      = 0.0    # triggers an immediate POST on start
+            last_post_time: float      = 0.0    # force an immediate POST on startup
 
             while True:
-                status     = read_sensor(adc, dac)
+                status     = read_sensor(adc)
                 now        = time.monotonic()
                 elapsed    = now - last_post_time
 
-                status_changed = status != last_status
-                heartbeat_due  = elapsed >= SLEEP_SECONDS
-
-                if status_changed or heartbeat_due:
-                    reason = "status change" if status_changed else "heartbeat"
+                if status != last_status or elapsed >= SLEEP_SECONDS:
+                    reason = "status change" if status != last_status else "heartbeat"
                     log.info("POSTing (%s).", reason)
                     send_status_update(status)
                     last_status    = status
@@ -326,8 +255,6 @@ def main() -> None:
     finally:
         if adc is not None:
             adc.close()
-        if dac is not None:
-            dac.close()
 
 
 if __name__ == "__main__":
