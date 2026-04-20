@@ -20,21 +20,13 @@ Hardware connections:
   MCP4822 CS   → GPIO8  / SPI0 CE0  (pin 24)   [Arduino: dacCS  = 8 ]
   MCP4822 SCK  → GPIO11 / SPI0 SCLK (pin 23)   [Arduino: dacSCK = 11]
   MCP4822 SDI  → GPIO10 / SPI0 MOSI (pin 19)   [Arduino: dacSDI = 10]
-  MCP4822 LDAC → GPIO7               (pin 26)   [Arduino: dacLDAC = 7]
+  MCP4822 LDAC → GND                            [Arduino: dacLDAC = 7]
 
-  NOTE: MCP3002 CS and LDAC both use GPIO7. Wire LDAC to GND instead if
-  you need both SPI CE lines free, since holding LDAC LOW permanently is
-  the correct default (immediate latch on CS rising edge).
+  LDAC is wired directly to GND. This is equivalent to holding it LOW
+  permanently in software and removes the need for any GPIO library.
 
 Dependencies:
-    pip install spidev lgpio requests
-
-    lgpio replaces RPi.GPIO for Pi 5 compatibility. RPi.GPIO raises
-    "cannot determine SoC peripheral base address" on Pi 5 because it
-    does not support the RP1 I/O chip. lgpio works on Pi 4 and Pi 5.
-
-    Alternatively, wire MCP4822 LDAC directly to GND — it is held LOW
-    permanently anyway — and remove the lgpio dependency entirely.
+    pip install spidev requests
 
 Usage:
     python car_detection.py            # continuous mode (recommended)
@@ -46,7 +38,6 @@ import logging
 import argparse
 import sys
 import spidev
-import lgpio
 import requests
 
 # ── Logging ────────────────────────────────────────────────────────────────────
@@ -85,10 +76,6 @@ DAC_GAIN_1X     = True          # True = 1x gain (Vout = Vref * D/4096)
 # Raise this value if the sensor reads high in an empty space (ambient field);
 # lower it if a parked car produces only a modest magnetic deflection.
 THRESHOLD       = 512
-
-# ── GPIO (LDAC pin for MCP4822) ───────────────────────────────────────────────
-LDAC_PIN        = 7             # Held LOW: DAC latches output immediately on CS rising edge
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SPI preflight check
@@ -207,51 +194,6 @@ class MCP4822:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# GPIO helpers
-# ══════════════════════════════════════════════════════════════════════════════
-
-# Module-level lgpio handle — opened once, shared by setup/cleanup
-_gpio_handle: int = -1
-
-
-def setup_gpio() -> None:
-    """
-    Hold LDAC LOW so the MCP4822 latches immediately on every CS rising edge.
-
-    Defensively calls gpio_free() before gpio_claim_output() so that a
-    previous run that was killed (Ctrl+C, crash, SIGKILL) without reaching
-    cleanup_gpio() does not leave GPIO7 in a busy state. Without this,
-    lgpio raises "GPIO busy" on the next run because the kernel still
-    considers the pin owned by the dead process.
-    """
-    global _gpio_handle
-    _gpio_handle = lgpio.gpiochip_open(0)
-
-    # Free the pin first — silently ignore the error if it wasn't claimed.
-    # This is safe: lgpio.gpio_free() on an unclaimed pin returns an error
-    # code but does not raise an exception, so the try/except is just for
-    # clarity rather than strictly necessary.
-    try:
-        lgpio.gpio_free(_gpio_handle, LDAC_PIN)
-    except Exception:
-        pass
-
-    lgpio.gpio_claim_output(_gpio_handle, LDAC_PIN)
-    lgpio.gpio_write(_gpio_handle, LDAC_PIN, 0)
-    log.info("GPIO ready — LDAC (GPIO%d) held LOW via lgpio.", LDAC_PIN)
-
-
-def cleanup_gpio() -> None:
-    """Release the lgpio handle. Equivalent to GPIO.cleanup()."""
-    global _gpio_handle
-    if _gpio_handle >= 0:
-        lgpio.gpio_free(_gpio_handle, LDAC_PIN)
-        lgpio.gpiochip_close(_gpio_handle)
-        _gpio_handle = -1
-    log.info("GPIO cleaned up.")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
 # Sensor read  (replaces GPIO.input(HALL_SENSOR_PIN) from the original script)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -329,11 +271,6 @@ def main() -> None:
     dac: MCP4822 | None = None
 
     try:
-        # Initialise all hardware inside try so the finally block always
-        # releases resources, even if setup itself raises (e.g. GPIO busy,
-        # SPI device missing). Previously setup_gpio() was called before
-        # the try block, meaning a crash there left the pin permanently busy.
-        setup_gpio()
         adc = MCP3002(ADC_BUS, ADC_DEVICE, ADC_SPEED_HZ)
         dac = MCP4822(DAC_BUS, DAC_DEVICE, DAC_SPEED_HZ, DAC_CHANNEL, DAC_GAIN_1X)
 
@@ -391,7 +328,6 @@ def main() -> None:
             adc.close()
         if dac is not None:
             dac.close()
-        cleanup_gpio()
 
 
 if __name__ == "__main__":
