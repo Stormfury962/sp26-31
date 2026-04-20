@@ -91,6 +91,41 @@ LDAC_PIN        = 7             # Held LOW: DAC latches output immediately on CS
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SPI preflight check
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _check_spi_device(bus: int, device: int) -> None:
+    """
+    Verify that /dev/spidev{bus}.{device} exists before attempting to open it.
+
+    spidev.open() raises a plain FileNotFoundError (errno 2) with no context
+    when the device file is missing, which happens when:
+      - SPI is disabled in /boot/firmware/config.txt (Pi 5 / Bookworm)
+        or /boot/config.txt (Pi 4 / Bullseye and earlier)
+      - Only CE0 is active but CE1 is needed (or vice-versa)
+
+    Fix:
+      1. Add/uncomment  dtparam=spi=on  in the config file above.
+      2. sudo reboot
+      3. Confirm with:  ls /dev/spidev*
+         Expected:  /dev/spidev0.0   /dev/spidev0.1
+    """
+    import os
+    path = f"/dev/spidev{bus}.{device}"
+    if not os.path.exists(path):
+        available = [f for f in os.listdir("/dev") if f.startswith("spidev")]
+        raise FileNotFoundError(
+            f"\n\nSPI device '{path}' not found.\n"
+            f"Available SPI devices: {available or ['none']}\n\n"
+            f"To fix:\n"
+            f"  1. Open  /boot/firmware/config.txt  (Pi 5) or  /boot/config.txt  (Pi 4)\n"
+            f"  2. Add or uncomment:  dtparam=spi=on\n"
+            f"  3. sudo reboot\n"
+            f"  4. Verify: ls /dev/spidev*\n"
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MCP3002 — SPI ADC (replaces GPIO.input() from the original script)
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -110,6 +145,7 @@ class MCP3002:
     _CMD_BASE = 0x68    # START=1, SGL=1, CH0, MSBF=1
 
     def __init__(self, bus: int, device: int, speed_hz: int) -> None:
+        _check_spi_device(bus, device)
         self._spi = spidev.SpiDev()
         self._spi.open(bus, device)
         self._spi.max_speed_hz = speed_hz
@@ -146,6 +182,7 @@ class MCP4822:
 
     def __init__(self, bus: int, device: int, speed_hz: int,
                  channel: int = 0, gain_1x: bool = True) -> None:
+        _check_spi_device(bus, device)
         self._spi = spidev.SpiDev()
         self._spi.open(bus, device)
         self._spi.max_speed_hz = speed_hz
@@ -181,20 +218,26 @@ def setup_gpio() -> None:
     """
     Hold LDAC LOW so the MCP4822 latches immediately on every CS rising edge.
 
-    Uses lgpio instead of RPi.GPIO. RPi.GPIO raises:
-        "RuntimeError: cannot determine SoC peripheral base address"
-    on Raspberry Pi 5 because RPi.GPIO does not support the RP1 I/O chip.
-    lgpio uses the kernel gpiochip interface and works on Pi 4 and Pi 5.
-
-    lgpio equivalents of the RPi.GPIO calls replaced:
-        GPIO.setmode(GPIO.BCM)          -> lgpio.gpiochip_open(0)
-        GPIO.setup(pin, GPIO.OUT)       -> lgpio.gpio_claim_output(h, pin)
-        GPIO.output(pin, GPIO.LOW)      -> lgpio.gpio_write(h, pin, 0)
+    Defensively calls gpio_free() before gpio_claim_output() so that a
+    previous run that was killed (Ctrl+C, crash, SIGKILL) without reaching
+    cleanup_gpio() does not leave GPIO7 in a busy state. Without this,
+    lgpio raises "GPIO busy" on the next run because the kernel still
+    considers the pin owned by the dead process.
     """
     global _gpio_handle
-    _gpio_handle = lgpio.gpiochip_open(0)           # open /dev/gpiochip0
-    lgpio.gpio_claim_output(_gpio_handle, LDAC_PIN)  # configure as output
-    lgpio.gpio_write(_gpio_handle, LDAC_PIN, 0)      # hold LOW
+    _gpio_handle = lgpio.gpiochip_open(0)
+
+    # Free the pin first — silently ignore the error if it wasn't claimed.
+    # This is safe: lgpio.gpio_free() on an unclaimed pin returns an error
+    # code but does not raise an exception, so the try/except is just for
+    # clarity rather than strictly necessary.
+    try:
+        lgpio.gpio_free(_gpio_handle, LDAC_PIN)
+    except Exception:
+        pass
+
+    lgpio.gpio_claim_output(_gpio_handle, LDAC_PIN)
+    lgpio.gpio_write(_gpio_handle, LDAC_PIN, 0)
     log.info("GPIO ready — LDAC (GPIO%d) held LOW via lgpio.", LDAC_PIN)
 
 
@@ -282,11 +325,18 @@ def main() -> None:
     args = parse_args()
     log.info("=== Project Uniview — Node: %s  Lot: %s ===", NODE_ID, LOT_ID)
 
-    setup_gpio()
-    adc = MCP3002(ADC_BUS, ADC_DEVICE, ADC_SPEED_HZ)
-    dac = MCP4822(DAC_BUS, DAC_DEVICE, DAC_SPEED_HZ, DAC_CHANNEL, DAC_GAIN_1X)
+    adc: MCP3002 | None = None
+    dac: MCP4822 | None = None
 
     try:
+        # Initialise all hardware inside try so the finally block always
+        # releases resources, even if setup itself raises (e.g. GPIO busy,
+        # SPI device missing). Previously setup_gpio() was called before
+        # the try block, meaning a crash there left the pin permanently busy.
+        setup_gpio()
+        adc = MCP3002(ADC_BUS, ADC_DEVICE, ADC_SPEED_HZ)
+        dac = MCP4822(DAC_BUS, DAC_DEVICE, DAC_SPEED_HZ, DAC_CHANNEL, DAC_GAIN_1X)
+
         if args.once:
             # ── Single-shot (cron) mode ────────────────────────────────────────
             # Mirrors the original script's structure and the Arduino's setup():
@@ -337,8 +387,10 @@ def main() -> None:
         log.info("Interrupted by user.")
 
     finally:
-        adc.close()
-        dac.close()
+        if adc is not None:
+            adc.close()
+        if dac is not None:
+            dac.close()
         cleanup_gpio()
 
 
