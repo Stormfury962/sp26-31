@@ -60,6 +60,17 @@ const MOCK_LOTS: ParkingLot[] = [
     occupancyRate: 35.6,
     lastUpdate: new Date().toISOString(),
   },
+  {
+    lotId: 'LOT_TEST',
+    name: 'Test Lot (Demo Node)',
+    location: { latitude: 40.52526521901689, longitude: -74.44122170578724 },
+    totalSpaces: 1,
+    availableSpaces: 1,
+    occupiedSpaces: 0,
+    offlineSpaces: 0,
+    occupancyRate: 0,
+    lastUpdate: new Date().toISOString(),
+  },
 ];
 
 export class LotService {

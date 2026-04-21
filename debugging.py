@@ -46,8 +46,8 @@ log = logging.getLogger(__name__)
 
 # ── Backend Configuration ──────────────────────────────────────────────────────
 SERVER_URL      = "http://your_app_endpoint/sensor/update"
-NODE_ID         = "node-001"    # Unique ID for this sensor node
-LOT_ID          = "lot-001"     # ID of the parking lot this sensor belongs to
+NODE_ID         = "NODE_LOT_TEST_001"    # Unique ID for this sensor node
+LOT_ID          = "LOT_TEST"     # ID of the parking lot this sensor belongs to
 REQUEST_TIMEOUT = 10            # seconds before HTTP request times out
 
 # ── Timing ────────────────────────────────────────────────────────────────────

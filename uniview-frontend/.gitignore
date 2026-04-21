@@ -3,6 +3,7 @@ android/local.properties
 
 # Build output
 android/app/build/
+android/app/.cxx/
 android/build/
 android/.gradle/
 
