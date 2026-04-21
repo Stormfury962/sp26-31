@@ -57,11 +57,20 @@ export const { spaceUpdated } = spacesSlice.actions;
 const selectByNodeId = (state: { spaces: SpacesState }) => state.spaces.byNodeId;
 const selectByLotId = (state: { spaces: SpacesState }) => state.spaces.byLotId;
 
-export const makeSelectSpacesByLotId = (lotId: string) =>
-  createSelector([selectByNodeId, selectByLotId], (byNodeId, byLotId) => {
-    const nodeIds = byLotId[lotId] ?? [];
-    return nodeIds.map(id => byNodeId[id]).filter(Boolean) as ParkingSpace[];
-  });
+const selectSpacesByLotIdCache = new Map<string, ReturnType<typeof createSelector>>();
+
+export const makeSelectSpacesByLotId = (lotId: string) => {
+  if (!selectSpacesByLotIdCache.has(lotId)) {
+    selectSpacesByLotIdCache.set(
+      lotId,
+      createSelector([selectByNodeId, selectByLotId], (byNodeId, byLotId) => {
+        const nodeIds = byLotId[lotId] ?? [];
+        return nodeIds.map(id => byNodeId[id]).filter(Boolean) as ParkingSpace[];
+      })
+    );
+  }
+  return selectSpacesByLotIdCache.get(lotId)!;
+};
 
 export const selectSpacesLoading = (state: { spaces: SpacesState }) => state.spaces.loading;
 

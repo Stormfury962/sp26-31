@@ -167,6 +167,24 @@ const parkingLots = [
     },
     lastUpdated: new Date().toISOString(),
   },
+  // ── Hardware demo lot (single physical sensor node) ───────────────────
+  {
+    lotId: 'LOT_TEST',
+    name: 'Test Lot (Demo Node)',
+    description: 'Single-space demo lot wired to the hardware sensor node',
+    location: { latitude: 40.5261, longitude: -74.4416 },
+    rowAngle: 0,
+    totalSpaces: 1,
+    currentAvailable: 1,
+    zones: ['Demo'],
+    metadata: {
+      accessHours: '24/7',
+      permitTypes: ['Demo'],
+      amenities: [],
+      rates: { hourly: 0.0, daily: 0.0 },
+    },
+    lastUpdated: new Date().toISOString(),
+  },
   // ── Other campuses (context for full map) ──────────────────────────────
   {
     lotId: 'LOT_BUSCH_SC',

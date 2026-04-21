@@ -27,16 +27,15 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 # ── Pin Configuration ──────────────────────────────────────────────────────────
-HALL_SENSOR_PIN = 17  # BCM GPIO pin connected to the Hall Effect sensor
+HALL_SENSOR_PIN = 7  # BCM GPIO pin connected to the Hall Effect sensor
 
 # ── Backend Configuration ──────────────────────────────────────────────────────
-SERVER_URL = "http://your_app_endpoint/sensor/update"
-NODE_ID    = "node-001"   # Unique ID for this sensor node
-LOT_ID     = "lot-001"    # ID of the parking lot this sensor belongs to
-
+SERVER_URL = "http://10.71.50.49:3000/sensor/update"
+NODE_ID         = "NODE_LOT_TEST_001"    # Unique ID for this sensor node
+LOT_ID          = "LOT_TEST"     # ID of the parking lot this sensor belongs to
 # ── Timing ────────────────────────────────────────────────────────────────────
-SLEEP_SECONDS = 3600  # 1 hour between readings
-REQUEST_TIMEOUT = 10  # seconds before HTTP request times out
+POLL_SECONDS    = 2    # how often to sample the sensor
+REQUEST_TIMEOUT = 10   # seconds before HTTP request times out
 
 
 def setup_gpio() -> None:
@@ -101,13 +100,18 @@ def cleanup_gpio() -> None:
 def main() -> None:
     setup_gpio()
 
+    last_status: str | None = None
+
     try:
         while True:
             status = read_sensor()
-            send_status_update(status)
 
-            log.info("Sleeping for %d seconds.", SLEEP_SECONDS)
-            time.sleep(SLEEP_SECONDS)
+            if status != last_status:
+                log.info("Status changed: %s -> %s", last_status, status)
+                send_status_update(status)
+                last_status = status
+
+            time.sleep(POLL_SECONDS)
 
     except KeyboardInterrupt:
         log.info("Interrupted by user.")
