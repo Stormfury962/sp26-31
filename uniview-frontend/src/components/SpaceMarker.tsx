@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Marker } from 'react-native-maps';
 import { ParkingSpace } from '../types';
@@ -14,15 +14,28 @@ const STATUS_COLORS: Record<ParkingSpace['status'], string> = {
   offline: '#9E9E9E',
 };
 
-const SpaceMarker: React.FC<Props> = ({ space }) => (
-  <Marker
-    coordinate={space.location}
-    anchor={{ x: 0.5, y: 0.5 }}
-    tracksViewChanges={false}
-  >
-    <View style={[styles.marker, { backgroundColor: STATUS_COLORS[space.status] ?? STATUS_COLORS.offline }]} />
-  </Marker>
-);
+const SpaceMarker: React.FC<Props> = ({ space }) => {
+  const [tracksViewChanges, setTracksViewChanges] = useState(true);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setTracksViewChanges(true);
+    timerRef.current = setTimeout(() => setTracksViewChanges(false), 300);
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [space.status]);
+
+  return (
+    <Marker
+      coordinate={space.location}
+      anchor={{ x: 0.5, y: 0.5 }}
+      tracksViewChanges={tracksViewChanges}
+    >
+      <View style={[styles.marker, { backgroundColor: STATUS_COLORS[space.status] ?? STATUS_COLORS.offline }]} />
+    </Marker>
+  );
+};
 
 const styles = StyleSheet.create({
   marker: {

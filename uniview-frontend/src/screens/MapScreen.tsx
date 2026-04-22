@@ -204,8 +204,8 @@ const MapScreen: React.FC = () => {
           />
         ))}
 
-        {/* Individual Space Markers (shown when a lot is selected) */}
-        {showSpaces && selectedLotSpaces.map(space => (
+        {/* Individual Space Markers (only for lots with calibrated spot data) */}
+        {showSpaces && ['LOT_TEST', 'LOT_59'].includes(selectedLotId ?? '') && selectedLotSpaces.map(space => (
           <SpaceMarker key={space.nodeId} space={space} />
         ))}
 

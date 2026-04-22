@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 HALL_SENSOR_PIN = 7  # BCM GPIO pin connected to the Hall Effect sensor
 
 # ── Backend Configuration ──────────────────────────────────────────────────────
-SERVER_URL = "http://10.71.50.49:3000/sensor/update"
+SERVER_URL = "http://10.71.50.49:3000/sensors/update"
 NODE_ID         = "NODE_LOT_TEST_001"    # Unique ID for this sensor node
 LOT_ID          = "LOT_TEST"     # ID of the parking lot this sensor belongs to
 # ── Timing ────────────────────────────────────────────────────────────────────
@@ -40,6 +40,7 @@ REQUEST_TIMEOUT = 10   # seconds before HTTP request times out
 
 def setup_gpio() -> None:
     """Configure GPIO pins."""
+    GPIO.cleanup()  # release any stale lock from a previous run
     GPIO.setmode(GPIO.BCM)
     GPIO.setup(HALL_SENSOR_PIN, GPIO.IN)
     log.info("GPIO initialised — using BCM pin %d", HALL_SENSOR_PIN)

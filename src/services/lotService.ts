@@ -63,7 +63,7 @@ const MOCK_LOTS: ParkingLot[] = [
   {
     lotId: 'LOT_TEST',
     name: 'Test Lot (Demo Node)',
-    location: { latitude: 40.52526521901689, longitude: -74.44122170578724 },
+    location: { latitude: 40.5259, longitude: -74.4409 },
     totalSpaces: 1,
     availableSpaces: 1,
     occupiedSpaces: 0,
@@ -295,7 +295,7 @@ export class LotService {
 
     await dynamoDB.send(new UpdateCommand({
       TableName: config.tables.parkingSpace,
-      Key: { nodeId, lotId },
+      Key: { nodeId },
       UpdateExpression: updateExpr,
       ExpressionAttributeNames: { '#status': 'status' },
       ExpressionAttributeValues: exprValues,

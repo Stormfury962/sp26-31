@@ -148,13 +148,13 @@ class WebSocketService {
       const space = message.payload as ParkingSpace;
       console.log('[WebSocket] Space update received:', space.nodeId);
 
+      // Capture previous state before dispatching
+      const prevState = store.getState();
+      const lot = prevState.lots.byId[space.lotId];
+      const prevSpace = prevState.spaces.byNodeId[space.nodeId];
+
       // Update the individual space in Redux
       store.dispatch(spaceUpdated(space));
-
-      // Update lot-level occupancy counts
-      const state = store.getState();
-      const lot = state.lots.byId[space.lotId];
-      const prevSpace = state.spaces.byNodeId[space.nodeId];
 
       if (lot && prevSpace && prevSpace.status !== space.status) {
         const delta = space.status === 'available' ? 1 : -1;

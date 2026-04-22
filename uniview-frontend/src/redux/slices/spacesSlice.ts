@@ -29,7 +29,11 @@ const spacesSlice = createSlice({
   reducers: {
     spaceUpdated: (state, action: PayloadAction<ParkingSpace>) => {
       const space = action.payload;
-      state.byNodeId[space.nodeId] = space;
+      if (state.byNodeId[space.nodeId]) {
+        Object.assign(state.byNodeId[space.nodeId], space);
+      } else {
+        state.byNodeId[space.nodeId] = space;
+      }
     },
   },
   extraReducers: (builder) => {

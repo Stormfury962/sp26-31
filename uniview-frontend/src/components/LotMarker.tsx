@@ -3,7 +3,7 @@
  * Custom marker for parking lots on the map
  */
 
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Marker } from 'react-native-maps';
 import { ParkingLot } from '../types';
@@ -15,6 +15,17 @@ interface LotMarkerProps {
 }
 
 const LotMarker: React.FC<LotMarkerProps> = ({ lot, color, onPress }) => {
+  const [tracksViewChanges, setTracksViewChanges] = useState(true);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setTracksViewChanges(true);
+    timerRef.current = setTimeout(() => setTracksViewChanges(false), 300);
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [color, lot.availableSpaces]);
+
   const availabilityPercent = Math.round(
     (lot.availableSpaces / lot.totalSpaces) * 100
   );
@@ -23,7 +34,7 @@ const LotMarker: React.FC<LotMarkerProps> = ({ lot, color, onPress }) => {
     <Marker
       coordinate={lot.location}
       onPress={onPress}
-      tracksViewChanges={false} // Performance optimization
+      tracksViewChanges={tracksViewChanges}
     >
       <View style={[styles.markerContainer, { backgroundColor: color }]}>
         <Text style={styles.markerText}>{lot.availableSpaces}</Text>
